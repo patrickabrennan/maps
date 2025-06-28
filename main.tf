@@ -60,36 +60,45 @@ module "app_security_group" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "5.1.0"
 
-  name        = "example-app-sg"
-  description = "Allow SSH, HTTP, HTTPS inbound"
-  vpc_id      = module.vpc.vpc_id
+  for_each = {
+    for p in local.flattened_projects : p.key => p
+    if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
+  }
+
+  name        = "${each.key}-app-sg"
+  description = "App SG for ${each.key}"
+  
+  vpc_id      = module.vpc[each.key].vpc_id
 
   ingress_with_cidr_blocks = [
     {
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = ["0.0.0.0/0"]
       description = "SSH"
     },
     {
       from_port   = 80
       to_port     = 80
       protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = ["0.0.0.0/0"]
       description = "HTTP"
     },
     {
       from_port   = 443
       to_port     = 443
       protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = ["0.0.0.0/0"]
       description = "HTTPS"
     }
   ]
 
-  # Allow all outbound traffic by default (module default)
+  tags = {
+    Project = each.key
+  }
 }
+
 
 
 
