@@ -30,25 +30,18 @@ module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
-  for_each = {
-    for p in local.flattened_projects : p.key => p
-    if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
-  }
+  name = "example-vpc"
+  cidr = "10.0.0.0/16"
+  azs  = slice(data.aws_availability_zones.available.names, 0, 1)
 
-  name = "${each.key}-vpc"
-  cidr = var.vpc_cidr_block
-  azs  = data.aws_availability_zones.available.names
+  public_subnets = ["10.0.1.0/24"]
 
-  private_subnets = slice(var.private_subnet_cidr_blocks, 0, each.value.private_subnets_per_vpc)
-  public_subnets  = each.value.public_subnets_per_vpc > 0 ? slice(var.public_subnet_cidr_blocks, 0, each.value.public_subnets_per_vpc) : []
-
-  enable_nat_gateway         = each.value.private_subnets_per_vpc > 0 ? true : false
-  create_igw                 = each.value.public_subnets_per_vpc > 0 ? true : false
-  map_public_ip_on_launch    = each.value.public_subnets_per_vpc > 0 ? true : false
-  enable_vpn_gateway         = false
+  enable_nat_gateway      = false
+  create_igw              = true
+  map_public_ip_on_launch = true
 
   tags = {
-    Project = each.key
+    Project = "example"
   }
 }
 
@@ -59,44 +52,36 @@ module "app_security_group" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "5.1.0"
 
-  for_each = {
-    for p in local.flattened_projects : p.key => p
-    if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
-  }
-
-  name        = "${each.key}-app-sg"
-  description = "App SG for ${each.key}"
-  vpc_id      = module.vpc[each.key].vpc_id
+  name        = "example-app-sg"
+  description = "Allow SSH, HTTP, HTTPS inbound"
+  vpc_id      = module.vpc.vpc_id
 
   ingress_with_cidr_blocks = [
     {
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = ["0.0.0.0/0"]
       description = "SSH"
     },
     {
       from_port   = 80
       to_port     = 80
       protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = ["0.0.0.0/0"]
       description = "HTTP"
     },
     {
       from_port   = 443
       to_port     = 443
       protocol    = "tcp"
-      cidr_blocks = "0.0.0.0/0"
+      cidr_blocks = ["0.0.0.0/0"]
       description = "HTTPS"
     }
   ]
 
-  tags = {
-    Project = each.key
-  }
+  # Allow all outbound traffic by default (module default)
 }
-
 
 
 
@@ -128,8 +113,6 @@ resource "random_string" "lb_id" {
   numeric = true
   special = false
 }
-
-
 
 #ADDED NEW ELB MODULE
 module "elb_http" {
