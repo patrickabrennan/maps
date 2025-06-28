@@ -215,12 +215,10 @@ locals {
 resource "aws_route53_record" "elb_alias" {
   for_each = {
     for k, v in var.project : k =>
-    (v.public_subnets_per_vpc > 0 || v.private_subnets_per_vpc > 0) &&
-    contains(keys(module.elb_http), k) &&
-    contains(keys(local.route53_names), k) ? k : null
+    k if contains(keys(module.elb_http), k) && (v.public_subnets_per_vpc > 0 || v.private_subnets_per_vpc > 0)
   }
 
-  zone_id = "Z08017432VFWFXO6IWHIK" ##var.route53_zone_id
+  zone_id = "Z08017432VFWFXO6IWHIK"     ##var.route53_zone_id
   name    = local.route53_names[each.key]
   type    = "A"
 
@@ -230,7 +228,6 @@ resource "aws_route53_record" "elb_alias" {
     evaluate_target_health = true
   }
 }
-
 
 #locals {
 #  elb_names = {
