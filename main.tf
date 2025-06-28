@@ -180,11 +180,14 @@ module "elb_http" {
 
 
 #ADDED 6/27/2025
+########################
+# LOCAL VALUES
+########################
 locals {
   elb_names = {
     for k, v in var.project : k =>
     k == "maps"
-    ? "maps-demo-pabrennan-com" # ELB name can't have dots
+    ? "maps-demo-pabrennan-com" # ELB names can't have dots
     : trimsuffix(
         substr(
           join(
@@ -201,10 +204,59 @@ locals {
   route53_names = {
     for k, v in var.project : k =>
     k == "maps"
-    ? "maps.demo.pabrennan.com" # Valid for Route53
-    : local.elb_names[k]
+    ? "maps.demo.pabrennan.com" # Friendly DNS name for maps
+    : "${k}.${v.environment}.demo.pabrennan.com"
   }
 }
+
+########################
+# ROUTE 53 RECORDS
+########################
+resource "aws_route53_record" "elb_alias" {
+  for_each = {
+    for k, v in var.project : k =>
+    (v.public_subnets_per_vpc > 0 || v.private_subnets_per_vpc > 0) &&
+    contains(keys(module.elb_http), k) &&
+    contains(keys(local.route53_names), k) ? k : null
+  }
+
+  zone_id = "Z08017432VFWFXO6IWHIK" ##var.route53_zone_id
+  name    = local.route53_names[each.key]
+  type    = "A"
+
+  alias {
+    name                   = module.elb_http[each.key].elb_dns_name
+    zone_id                = module.elb_http[each.key].elb_zone_id
+    evaluate_target_health = true
+  }
+}
+
+
+#locals {
+#  elb_names = {
+#    for k, v in var.project : k =>
+#    k == "maps"
+#    ? "maps-demo-pabrennan-com" # ELB name can't have dots
+#    : trimsuffix(
+#        substr(
+#          join(
+#            "",
+#            regexall("[a-zA-Z0-9-]", join("-", ["lb", random_string.lb_id.result, k, v.environment]))
+#          ),
+#          0,
+#          32
+#        ),
+#        "-"
+#      )
+#  }
+
+# route53_names = {
+#    for k, v in var.project : k =>
+#    k == "maps"
+#    ? "maps.demo.pabrennan.com" # Valid for Route53
+#    : local.elb_names[k]
+#  }
+#}
 
 #NEW EC2 INSSTANCE MNODE 6/26/2025
 module "ec2_instances" {
