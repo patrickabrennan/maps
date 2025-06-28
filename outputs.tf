@@ -1,23 +1,27 @@
 #ADDED 6/27/2025
-output "maps_elb_dns_name" {
-  value = try(module.elb_http["backend"].elb_dns_name, null)
+output "elb_dns_names" {
+  description = "Map of project/environment to Route53 DNS names for ELBs"
+  value = {
+    for k, v in var.project :
+    "${k}-${v.environment}" => aws_route53_record.elb_alias[k].fqdn
+    if contains(keys(aws_route53_record.elb_alias), k)
+  }
 }
 
-output "maps_elb_zone_id" {
-  value = try(module.elb_http["backend"].elb_zone_id, null)
+output "elb_names" {
+  description = "Elastic Load Balancer names per project"
+  value = {
+    for k, v in var.project :
+    "${k}-${v.environment}" => module.elb_http[k].this_elb_name
+    if contains(keys(module.elb_http), k)
+  }
 }
 
-
-
-
-
-
-output "vpc_arns" {
-  value = { for p in sort(keys(module.vpc)) : p => module.vpc[p].vpc_arn }
-  description = "VPC ARNs per project"
-}
-
-output "instance_ids" {
-  value = { for p in sort(keys(module.ec2_instances)) : p => module.ec2_instances[p].instance_ids }
+output "ec2_instances_per_project" {
   description = "EC2 instance IDs per project"
+  value = {
+    for k, v in var.project :
+    "${k}-${v.environment}" => module.ec2_instances[k].instance_ids
+    if contains(keys(module.ec2_instances), k)
+  }
 }
