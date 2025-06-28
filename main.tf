@@ -27,23 +27,31 @@ locals {
 
 #NEW VPC MODUKE ADDED 6/27/2025
 module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
+  source = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
-  name = "example-vpc"
-  cidr = "10.0.0.0/16"
-  azs  = slice(data.aws_availability_zones.available.names, 0, 1)
+  for_each = {
+    for p in local.flattened_projects : p.key => p
+    if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
+  }
 
-  public_subnets = ["10.0.1.0/24"]
+  name = "${each.key}-vpc"
+  cidr = var.vpc_cidr_block
+  azs  = data.aws_availability_zones.available.names
 
-  enable_nat_gateway      = false
-  create_igw              = true
-  map_public_ip_on_launch = true
+  private_subnets = slice(var.private_subnet_cidr_blocks, 0, each.value.private_subnets_per_vpc)
+  public_subnets  = each.value.public_subnets_per_vpc > 0 ? slice(var.public_subnet_cidr_blocks, 0, each.value.public_subnets_per_vpc) : []
+
+  enable_nat_gateway         = each.value.private_subnets_per_vpc > 0
+  create_igw                 = each.value.public_subnets_per_vpc > 0
+  map_public_ip_on_launch    = each.value.public_subnets_per_vpc > 0
+  enable_vpn_gateway         = false
 
   tags = {
-    Project = "example"
+    Project = each.key
   }
 }
+
 
 
 
