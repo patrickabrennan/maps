@@ -9,10 +9,10 @@ output "elb_dns_names" {
 }
 
 output "elb_names" {
-  description = "Elastic Load Balancer names per project"
+  description = "Elastic Load Balancer DNS names per project"
   value = {
     for k, v in var.project :
-    "${k}-${v.environment}" => module.elb_http[k].this_elb_name
+    "${k}-${v.environment}" => module.elb_http[k].elb_dns_name
     if contains(keys(module.elb_http), k)
   }
 }
@@ -25,3 +25,4 @@ output "ec2_instances_per_project" {
     if contains(keys(module.ec2_instances), k)
   }
 }
+
