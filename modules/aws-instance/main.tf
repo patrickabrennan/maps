@@ -37,6 +37,7 @@ resource "aws_instance" "this" {
               service docker start
               usermod -a -G docker ec2-user
               systemctl enable docker
+              docker run --rm -d -p 80:80 -p 443:443 --name myweb patrickabrennan/myweb
               EOF
 
   tags = {
