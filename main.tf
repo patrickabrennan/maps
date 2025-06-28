@@ -59,15 +59,10 @@ module "vpc" {
 #NEW APP SECURITY GROUP 6/27/2025
 module "app_security_group" {
   source  = "terraform-aws-modules/security-group/aws"
-  version = "4.9.0"
+  version = "5.1.0" # or latest
 
-  for_each = {
-    for p in local.flattened_projects : p.key => p
-    if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
-  }
-
-  name        = "web-server-sg-${each.key}-${each.value.environment}"
-  description = "Security group for web servers - SSH, HTTP, HTTPS"
+  name        = "app-sg"
+  description = "Security group for app"
   vpc_id      = module.vpc[each.key].vpc_id
 
   ingress_with_cidr_blocks = [
