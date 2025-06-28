@@ -14,28 +14,53 @@ data "aws_availability_zones" "available" {
 ##ADDED 6/25/2025
 locals {
   flattened_projects = [
-    for project_key, project in var.project : {
-      key                         = project_key
-      environment                 = project.environment
+    for env_key, project in var.project : {
+      key                         = env_key
+      environment                 = env_key
+      project_name                = project.project_name
       private_subnets_per_vpc     = project.private_subnets_per_vpc
       public_subnets_per_vpc      = project.public_subnets_per_vpc
       instances_per_subnet        = project.instances_per_subnet
       instance_type               = project.instance_type
     }
   ]
+
+  elb_names = {
+    for k, v in var.project : k =>
+    v.project_name == "maps" && k == "prod"
+    ? "maps-demo-pabrennan-com"
+    : trimsuffix(
+        substr(
+          join(
+            "",
+            regexall("[a-zA-Z0-9-]", join("-", ["lb", random_string.lb_id.result, v.project_name, k]))
+          ),
+          0,
+          32
+        ),
+        "-"
+      )
+  }
+
+  route53_names = {
+    for k, v in var.project : k =>
+    v.project_name == "maps" && k == "prod"
+    ? "maps.demo.pabrennan.com"
+    : "${v.project_name}-${k}.demo.pabrennan.com"
+  }
 }
 
 #NEW VPC MODUKE ADDED 6/27/2025
 module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
+  source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
   for_each = {
-    for p in local.flattened_projects : p.key => p
+    for p in local.flattened_projects : p.environment => p
     if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
   }
 
-  name = "${each.key}-vpc"
+  name = "${each.value.project_name}-${each.key}-vpc"
   cidr = var.vpc_cidr_block
   azs  = data.aws_availability_zones.available.names
 
@@ -48,12 +73,10 @@ module "vpc" {
   enable_vpn_gateway         = false
 
   tags = {
-    Project = each.key
+    Project     = each.value.project_name
+    Environment = each.key
   }
 }
-
-
-
 
 #NEW APP SECURITY GROUP 6/27/2025
 module "app_security_group" {
@@ -61,13 +84,12 @@ module "app_security_group" {
   version = "5.1.0"
 
   for_each = {
-    for p in local.flattened_projects : p.key => p
+    for p in local.flattened_projects : p.environment => p
     if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
   }
 
-  name        = "${each.key}-app-sg"
-  description = "App SG for ${each.key}"
-  
+  name        = "${each.value.project_name}-${each.key}-app-sg"
+  description = "App SG for ${each.value.project_name}-${each.key}"
   vpc_id      = module.vpc[each.key].vpc_id
 
   ingress_with_cidr_blocks = [
@@ -100,36 +122,34 @@ module "app_security_group" {
       to_port     = 0
       protocol    = "-1"
       cidr_blocks = "0.0.0.0/0"
-      description = "Allow all outbound traffic"
+      description = "Allow all outbound"
     }
   ]
 
   tags = {
-    Project = each.key
+    Project     = each.value.project_name
+    Environment = each.key
   }
 }
-
-
-
-
 
 module "lb_security_group" {
   source  = "terraform-aws-modules/security-group/aws//modules/web"
   version = "4.9.0"
-  
-  #ADDED 6/27/2025
-  #for_each = var.project
-# For lb_security_group
+
   for_each = {
-    for p in local.flattened_projects : p.key => p
+    for p in local.flattened_projects : p.environment => p
     if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
   }
 
-
-  name = "load-balancer-sg-${each.key}-${each.value.environment}"
-  description = "Security group for load balancer with HTTP ports open within VPC"
+  name        = "${each.value.project_name}-${each.key}-lb-sg"
+  description = "LB SG for ${each.value.project_name}-${each.key}"
   vpc_id      = module.vpc[each.key].vpc_id
   ingress_cidr_blocks = ["0.0.0.0/0"]
+
+  tags = {
+    Project     = each.value.project_name
+    Environment = each.key
+  }
 }
 
 #ADDED 6/27/2024
@@ -147,7 +167,7 @@ module "elb_http" {
   version = "3.0.1"
 
   for_each = {
-    for p in local.flattened_projects : p.key => p
+    for p in local.flattened_projects : p.environment => p
     if p.public_subnets_per_vpc > 0 || p.private_subnets_per_vpc > 0
   }
 
@@ -178,36 +198,8 @@ module "elb_http" {
 }
 
 
-
 #ADDED 6/27/2025
-########################
-# LOCAL VALUES
-########################
-locals {
-  elb_names = {
-    for k, v in var.project : k =>
-    k == "maps"
-    ? "maps-demo-pabrennan-com" # ELB names can't have dots
-    : trimsuffix(
-        substr(
-          join(
-            "",
-            regexall("[a-zA-Z0-9-]", join("-", ["lb", random_string.lb_id.result, k, v.environment]))
-          ),
-          0,
-          32
-        ),
-        "-"
-      )
-  }
 
-  route53_names = {
-    for k, v in var.project : k =>
-    k == "maps"
-    ? "maps.demo.pabrennan.com" # Friendly DNS name for maps
-    : "${k}.${v.environment}.demo.pabrennan.com"
-  }
-}
 
 ########################
 # ROUTE 53 RECORDS
@@ -229,38 +221,11 @@ resource "aws_route53_record" "elb_alias" {
   }
 }
 
-#locals {
-#  elb_names = {
-#    for k, v in var.project : k =>
-#    k == "maps"
-#    ? "maps-demo-pabrennan-com" # ELB name can't have dots
-#    : trimsuffix(
-#        substr(
-#          join(
-#            "",
-#            regexall("[a-zA-Z0-9-]", join("-", ["lb", random_string.lb_id.result, k, v.environment]))
-#          ),
-#          0,
-#          32
-#        ),
-#        "-"
-#      )
-#  }
-
-# route53_names = {
-#    for k, v in var.project : k =>
-#    k == "maps"
-#    ? "maps.demo.pabrennan.com" # Valid for Route53
-#    : local.elb_names[k]
-#  }
-#}
-
-#NEW EC2 INSSTANCE MNODE 6/26/2025
 module "ec2_instances" {
   source = "./modules/aws-instance"
 
   for_each = {
-    for p in local.flattened_projects : p.key => p
+    for p in local.flattened_projects : p.environment => p
     if p.private_subnets_per_vpc > 0 || p.public_subnets_per_vpc > 0
   }
 
@@ -269,17 +234,16 @@ module "ec2_instances" {
       ? length(module.vpc[each.key].private_subnets)
       : length(module.vpc[each.key].public_subnets)
   )
-  subnet_ids = each.value.private_subnets_per_vpc > 0 ? module.vpc[each.key].private_subnets : module.vpc[each.key].public_subnets
 
+  subnet_ids = each.value.private_subnets_per_vpc > 0 ? module.vpc[each.key].private_subnets : module.vpc[each.key].public_subnets
   associate_public_ip_address = each.value.public_subnets_per_vpc > 0
 
   instance_type      = each.value.instance_type
   security_group_ids = [module.app_security_group[each.key].security_group_id]
-  project_name       = each.key
-  environment        = each.value.environment
+  project_name       = each.value.project_name
+  environment        = each.key
   ssh_key_name       = var.ssh_key_name
 }
-
 
 #ADDED 6/26/2025
 resource "aws_key_pair" "deployer" {
